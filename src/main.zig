@@ -14,9 +14,9 @@ const ByteSliceIterator = @import("./byte_slice_iterator.zig").ByteSliceIterator
 
 /// Each line (exluding the trailing newline character) of the output consists of 3 parts:
 /// 1. Offset string
-///     - 8 + 1 + 1 bytes
+///     - 8 + 1 + 1 = 10 bytes
 /// 2. Hex string
-///     - 8 * (2 * 2 + 1) bytes
+///     - 8 * (2 * 2 + 1) = 40 bytes
 /// 3. ASCII string
 ///     - 16 bytes
 const line_len = offset_str_len + hex_str_len + ascii_str_len;
@@ -31,6 +31,7 @@ const row_str_len = hex_str_len + max_num_bytes_per_line;
 const max_num_bytes_per_col = 2;
 
 const ansi_cyan = "\x1b[0;36m";
+const ansi_red = "\x1b[0;31m";
 const ansi_reset = "\x1b[0m";
 
 pub fn main() anyerror!void {
@@ -89,127 +90,78 @@ pub fn main() anyerror!void {
             .slice_len = max_num_bytes_per_line,
         };
 
+        var line_index: usize = 0;
+
         while (byte_slice_iterator.next()) |byte_slice| {
-            const hex_str = try createFormattedHexStr(byte_slice);
 
-            // Dislay the hex string
-            std.debug.print("{s}", .{hex_str});
+            // Calculate the offset
+            const offset = line_index * max_num_bytes_per_line;
 
-            // Dislay the human readable string
-            std.debug.print("{s}\n", .{createHumanReadableStr(byte_slice)});
+            const line = try makeLine(byte_slice, offset);
 
-            // // Display the slice as a human readable string
-            // for (byte_slice, 0..) |byte, index| {
-            //     if (byte <= 0x20 or byte >= 0x7f) {
-            //         printCharInColor('.');
-            //     } else {
-            //         std.debug.print("{c}", .{byte});
-            //     }
+            // Dislay the line
+            std.debug.print("{s}\n", .{line});
 
-            //     // Print a newline after the last byte
-            //     if (index == byte_slice.len - 1) {
-            //         std.debug.print("\n", .{});
-            //     }
-            // }
+            // Increment the line index
+            line_index += 1;
         }
     }
 }
 
-fn createRowStr(bytes: []const u8) ![row_str_len]u8 {
+fn makeLine(bytes: []const u8, offset: usize) ![line_len]u8 {
 
     // Check the number of input bytes
     if (bytes.len > max_num_bytes_per_line) {
         return HexDumpError.TooManyBytesPerRow;
     }
 
-    // Initialize the row string buffer
-    var row_str: [row_str_len]u8 = undefined;
+    // Initialize the line string buffer
+    var line: [line_len]u8 = .{32} ** line_len;
 
-    // Character index in the string
-    var char_index: usize = 0;
+    // Put the offset string into the first 10 bytes of the line
+    _ = try std.fmt.bufPrint(line[0..offset_str_len], "{x:0>8}: ", .{offset});
 
-    for (bytes, 0..) |byte, index| {
+    for (bytes, 0..) |byte, byte_index| {
 
-        //
-        if (@mod(index, 2) == 1) {}
-    }
-}
+        // First byte in a 2-byte group
+        if (@mod(byte_index, 2) == 0) {
 
-fn createHumanReadableStr(bytes: []const u8) [max_num_bytes_per_line]u8 {
-    // Initialize the string buffer
-    var str: [max_num_bytes_per_line]u8 = undefined;
+            // Calculate the character index in the hex string
+            const hex_str_char_index: usize = offset_str_len + (byte_index >> 1) * 5;
 
-    for (bytes, 0..) |byte, index| {
-        if (byte <= 0x20 or byte >= 0x7f) {
-            str[index] = '.';
+            // Set the 2-character hex representation of the byte
+            _ = try std.fmt.bufPrint(line[hex_str_char_index .. hex_str_char_index + 2], "{x:0>2}", .{byte});
         } else {
-            str[index] = byte;
+            // Calculate the character index in the hex string
+            const hex_str_char_index: usize = offset_str_len + (byte_index >> 1) * 5 + 2;
+
+            // Set the 2-character hex representation of the byte
+            // with a trailing space
+            // 3 characters in total
+            _ = try std.fmt.bufPrint(line[hex_str_char_index .. hex_str_char_index + 3], "{x:0>2} ", .{byte});
+        }
+
+        // Set the ASCII representation of the byte
+        const ascii_char_index = offset_str_len + hex_str_len + byte_index;
+
+        if (byte > 0x20 and byte < 0x7f) {
+            _ = try std.fmt.bufPrint(line[ascii_char_index .. ascii_char_index + 1], "{c}", .{byte});
+        } else {
+            _ = try std.fmt.bufPrint(line[ascii_char_index .. ascii_char_index + 1], "{c}", .{'.'});
         }
     }
 
-    return str;
+    return line;
 }
 
-fn createFormattedHexStr(bytes: []const u8) ![hex_str_len]u8 {
+test "print line" {
+    const bytes = [_]u8{ 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20 };
 
-    // Check the number of input bytes
-    if (bytes.len > max_num_bytes_per_line) {
-        return HexDumpError.TooManyBytesPerRow;
-    }
+    const line = try makeLine(&bytes, 0);
 
-    // Initialize the row string buffer
-    var hex_str: [hex_str_len]u8 = undefined;
+    std.debug.print("{s}\n", .{line});
 
-    // Index of the byte in the row
-    var byte_index: usize = 0;
-
-    // Character index in the string
-    var char_index: usize = 0;
-
-    while (true) : (char_index += 5) {
-
-        // Can write 2 bytes
-        if (byte_index + 1 < bytes.len) {
-            _ = try std.fmt.bufPrint(
-                hex_str[char_index .. char_index + 5],
-                "{x:0>2}{x:0>2} ",
-                .{ bytes[byte_index], bytes[byte_index + 1] },
-            );
-
-            // Increment the index
-            byte_index += 2;
-        } else if (byte_index < bytes.len) {
-
-            // Can only write 1 byte
-            _ = try std.fmt.bufPrint(
-                hex_str[char_index .. char_index + 5],
-                "{x:0>2}   ",
-                .{bytes[byte_index]},
-            );
-
-            // Increment the index
-            byte_index += 1;
-        } else {
-            // Reached the end of the row
-            break;
-        }
-    }
-
-    // Calculate the number of remaining characters
-    const num_remaining_chars = hex_str_len - char_index;
-
-    // Fill the remaining characters with spaces
-    @memset(hex_str[char_index .. char_index + num_remaining_chars], 32);
-
-    return hex_str;
-}
-
-test "print hex string" {
-    const row = [_]u8{ 65, 66, 64 };
-
-    const hex_str = try createFormattedHexStr(&row);
-
-    std.debug.print("{s}END\n", .{hex_str});
+    std.debug.print("{d}\n", .{5 >> 1});
 }
 
 test "ansi color" {
