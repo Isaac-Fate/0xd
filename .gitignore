@@ -1,0 +1,20 @@
+# MacOS hidden files
+**/.DS_Store
+
+# VS Code settings
+.vscode
+
+# Playground
+/playground
+
+# Configuration and secret files
+/.env
+
+# Zig cache
+/.zig-cache
+
+# Output directory
+/zig-out
+
+# Temperature files
+/tmp
